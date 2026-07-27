@@ -1,0 +1,11 @@
+import { PortfolioView } from "@/components/portfolio";
+import portfolioData from "@/data/portfolio.json";
+import type { Portfolio } from "@/lib/portfolio";
+
+export default function Home() {
+  return (
+    <main className="portfolio-page">
+      <PortfolioView portfolio={portfolioData as Portfolio} />
+    </main>
+  );
+}

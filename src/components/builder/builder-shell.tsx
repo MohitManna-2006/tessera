@@ -8,7 +8,9 @@ import {
   type Portfolio,
   type PortfolioSectionId,
 } from "@/lib/portfolio";
+import type { PortfolioValidationIssue } from "@/lib/portfolio-validation";
 
+import { PortfolioExport } from "../export/portfolio-export";
 import { PortfolioEditor } from "./portfolio-editor";
 import { PortfolioPreview } from "./portfolio-preview";
 
@@ -39,6 +41,7 @@ export function BuilderShell() {
     ReadonlySet<PortfolioSectionId>
   >(() => new Set([PORTFOLIO_SECTION_ORDER[0]]));
   const [activeView, setActiveView] = useState<BuilderView>("edit");
+  const [exportValidationMessage, setExportValidationMessage] = useState("");
   const isCompact = useCompactLayout();
 
   const handleSectionToggle = (section: PortfolioSectionId) => {
@@ -63,7 +66,32 @@ export function BuilderShell() {
     }
 
     setDraft(createPortfolioDraft());
+    setExportValidationMessage("");
     setActiveView("edit");
+  };
+
+  const handleDraftChange = (portfolio: Portfolio) => {
+    setExportValidationMessage("");
+    setDraft(portfolio);
+  };
+
+  const handleInvalidExport = (issue: PortfolioValidationIssue) => {
+    setExportValidationMessage(
+      "Correct the highlighted email or URL fields before downloading.",
+    );
+
+    queueMicrotask(() => {
+      const field = issue.fieldId
+        ? document.getElementById(issue.fieldId)
+        : null;
+      if (field && !field.closest("[hidden]")) {
+        field.focus();
+        return;
+      }
+      if (issue.section) {
+        document.getElementById(`${issue.section}-button`)?.focus();
+      }
+    });
   };
 
   const handleTabKeyDown = (
@@ -94,9 +122,12 @@ export function BuilderShell() {
           <span className="wordmark">Tessera</span>
           <span className="builder-label">Portfolio builder</span>
         </div>
-        <button className="reset-button" type="button" onClick={handleReset}>
-          Reset draft
-        </button>
+        <div className="builder-actions">
+          <button className="reset-button" type="button" onClick={handleReset}>
+            Reset draft
+          </button>
+          <PortfolioExport portfolio={draft} onInvalid={handleInvalidExport} />
+        </div>
       </header>
 
       <div className="mobile-tabs" role="tablist" aria-label="Builder views">
@@ -138,12 +169,17 @@ export function BuilderShell() {
             <p className="editor-kicker">Draft</p>
             <h1>Edit portfolio</h1>
             <p>Update the content shown in your preview.</p>
+            {exportValidationMessage ? (
+              <p className="export-validation-message" role="alert">
+                {exportValidationMessage}
+              </p>
+            ) : null}
           </div>
           <PortfolioEditor
             portfolio={draft}
             openSections={openSections}
             onToggleSection={handleSectionToggle}
-            onChange={setDraft}
+            onChange={handleDraftChange}
           />
         </section>
 
