@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type KeyboardEvent } from "react";
 
 import {
@@ -119,7 +120,9 @@ export function BuilderShell() {
     <div className="builder-shell" data-active-view={activeView}>
       <header className="builder-header">
         <div className="builder-brand">
-          <span className="wordmark">Tessera</span>
+          <Link className="builder-wordmark wordmark" href="/">
+            Tessera
+          </Link>
           <span className="builder-label">Portfolio builder</span>
         </div>
         <div className="builder-actions">

@@ -100,6 +100,18 @@ textarea:focus-visible {
   font-weight: 650;
 }
 
+.builder-wordmark {
+  border-radius: 3px;
+  color: var(--ink);
+  letter-spacing: -0.025em;
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.builder-wordmark:hover {
+  color: var(--accent);
+}
+
 .builder-label {
   color: var(--secondary);
   font-size: 13px;

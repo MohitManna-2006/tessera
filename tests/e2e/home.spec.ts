@@ -280,6 +280,26 @@ test("supports direct builder routes and unknown source values safely", async ({
   }
 });
 
+test("returns to onboarding from the Tessera logo in both builder modes", async ({
+  page,
+}) => {
+  for (const route of ["/builder", "/builder?source=sample"]) {
+    await page.goto(route);
+
+    const tesseraLogo = page.getByRole("link", { name: "Tessera" });
+    await expect(tesseraLogo).toHaveAttribute("href", "/");
+    await tesseraLogo.click();
+
+    await expect(page).toHaveURL(/\/$/);
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Turn your experience into a portfolio you own.",
+      }),
+    ).toBeVisible();
+  }
+});
+
 test("keeps onboarding composed at narrow width and under reduced motion", async ({
   page,
 }) => {

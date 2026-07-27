@@ -140,6 +140,10 @@ describe("Tessera portfolio builder", () => {
   it("renders the fixture and keeps editor and preview sections in canonical order", () => {
     render(<BuilderPage />);
 
+    expect(screen.getByRole("link", { name: "Tessera" })).toHaveAttribute(
+      "href",
+      "/",
+    );
     expect(
       screen.getByRole("heading", { level: 1, name: "Edit portfolio" }),
     ).toBeInTheDocument();
