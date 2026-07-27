@@ -1,5 +1,13 @@
-import { BuilderShell } from "@/components/builder/builder-shell";
+import type { Metadata } from "next";
 
-export default function Home() {
-  return <BuilderShell />;
+import { OnboardingPage } from "@/components/onboarding/onboarding-page";
+
+export const metadata: Metadata = {
+  title: "Tessera · Developer portfolios you own",
+  description:
+    "Bring your developer experience together in an editable portfolio and download the complete codebase.",
+};
+
+export default function HomePage() {
+  return <OnboardingPage />;
 }

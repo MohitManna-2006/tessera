@@ -9,10 +9,10 @@ works independently of Tessera.
 
 ## Current Repository State
 
-This repository currently contains the initial Next.js and TypeScript
-foundation. It does not yet implement resume upload, GitHub import, AI
-operations, portfolio editing, template rendering, export, authentication, or
-persistence.
+This repository contains Tessera's onboarding entry point and a working
+portfolio builder with live preview, validation, and deterministic ZIP export.
+Resume import, GitHub import, AI operations, authentication, and persistence are
+not implemented.
 
 The frozen architectural invariant is:
 
@@ -48,7 +48,10 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000 for onboarding, or visit
+http://localhost:3000/builder to open the builder directly. The `/resume` route
+is an explicit Stage 1 boundary page; resume upload and extraction are not
+implemented.
 
 ## Quality Commands
 
