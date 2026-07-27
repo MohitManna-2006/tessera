@@ -1,18 +1,11 @@
 import "server-only";
-import "pdfjs-dist/legacy/build/pdf.worker.mjs";
-
-import {
-  getDocument,
-  InvalidPDFException,
-  OPS,
-  PasswordResponses,
-  ResponseException,
-  VerbosityLevel,
-} from "pdfjs-dist/legacy/build/pdf.mjs";
 
 import type { ResumeProcessingLimits } from "./contracts";
 import { ResumeProcessingError } from "./errors";
 import { hasPdfFileSignature } from "./selection";
+
+type CanvasModule = typeof import("@napi-rs/canvas");
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
 type PdfTextItem = {
   str: string;
@@ -30,14 +23,49 @@ export type PdfTextParser = (
   limits: ResumeProcessingLimits,
 ) => Promise<ParsedPdfText>;
 
-const IMAGE_OPERATORS = new Set<number>([
-  OPS.paintImageMaskXObject,
-  OPS.paintImageXObject,
-  OPS.paintInlineImageXObject,
-  OPS.paintImageXObjectRepeat,
-  OPS.paintImageMaskXObjectRepeat,
-  OPS.paintSolidColorImageMask,
-]);
+const PASSWORD_RESPONSE_CODES = {
+  needPassword: 1,
+  incorrectPassword: 2,
+} as const;
+
+let pdfJsModulePromise: Promise<PdfJsModule> | undefined;
+
+function installCanvasGlobals(canvas: CanvasModule) {
+  const implementations = {
+    DOMMatrix: canvas.DOMMatrix,
+    ImageData: canvas.ImageData,
+    Path2D: canvas.Path2D,
+  };
+
+  for (const [name, implementation] of Object.entries(implementations)) {
+    if (typeof Reflect.get(globalThis, name) === "undefined") {
+      Object.defineProperty(globalThis, name, {
+        configurable: true,
+        value: implementation,
+        writable: true,
+      });
+    }
+  }
+}
+
+async function initializePdfJs(): Promise<PdfJsModule> {
+  const canvas = await import("@napi-rs/canvas");
+  installCanvasGlobals(canvas);
+
+  const worker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  Object.defineProperty(globalThis, "pdfjsWorker", {
+    configurable: true,
+    value: { WorkerMessageHandler: worker.WorkerMessageHandler },
+    writable: true,
+  });
+
+  return import("pdfjs-dist/legacy/build/pdf.mjs");
+}
+
+function loadPdfJs(): Promise<PdfJsModule> {
+  pdfJsModulePromise ??= initializePdfJs();
+  return pdfJsModulePromise;
+}
 
 function isPdfTextItem(value: unknown): value is PdfTextItem {
   return (
@@ -86,8 +114,20 @@ function joinTextItems(items: readonly unknown[], rawCharacterLimit: number) {
   return text;
 }
 
-function hasImageOperator(operators: { fnArray: readonly number[] }): boolean {
-  return operators.fnArray.some((operator) => IMAGE_OPERATORS.has(operator));
+function hasImageOperator(
+  operators: { fnArray: readonly number[] },
+  pdfJs: PdfJsModule,
+): boolean {
+  const imageOperators = new Set<number>([
+    pdfJs.OPS.paintImageMaskXObject,
+    pdfJs.OPS.paintImageXObject,
+    pdfJs.OPS.paintInlineImageXObject,
+    pdfJs.OPS.paintImageXObjectRepeat,
+    pdfJs.OPS.paintImageMaskXObjectRepeat,
+    pdfJs.OPS.paintSolidColorImageMask,
+  ]);
+
+  return operators.fnArray.some((operator) => imageOperators.has(operator));
 }
 
 function getErrorName(error: unknown): string {
@@ -116,6 +156,7 @@ function getPasswordErrorCode(error: unknown): number | undefined {
 
 export function classifyPdfParserError(
   error: unknown,
+  pdfJs?: PdfJsModule,
 ): "encrypted_pdf" | "corrupted_pdf" | "unreadable_pdf" | null {
   const name = getErrorName(error);
   const passwordCode = getPasswordErrorCode(error);
@@ -123,13 +164,13 @@ export function classifyPdfParserError(
   if (
     name === "PasswordException" &&
     (passwordCode === undefined ||
-      passwordCode === PasswordResponses.NEED_PASSWORD ||
-      passwordCode === PasswordResponses.INCORRECT_PASSWORD)
+      passwordCode === PASSWORD_RESPONSE_CODES.needPassword ||
+      passwordCode === PASSWORD_RESPONSE_CODES.incorrectPassword)
   ) {
     return "encrypted_pdf";
   }
   if (
-    error instanceof InvalidPDFException ||
+    (pdfJs !== undefined && error instanceof pdfJs.InvalidPDFException) ||
     name === "InvalidPDFException" ||
     name === "XRefParseException" ||
     name === "FormatError"
@@ -137,7 +178,7 @@ export function classifyPdfParserError(
     return "corrupted_pdf";
   }
   if (
-    error instanceof ResponseException ||
+    (pdfJs !== undefined && error instanceof pdfJs.ResponseException) ||
     name === "ResponseException" ||
     name === "MissingPDFException" ||
     name === "UnexpectedResponseException" ||
@@ -153,14 +194,15 @@ export const parsePdfText: PdfTextParser = async (data, limits) => {
     throw new ResumeProcessingError("unreadable_pdf");
   }
 
-  const loadingTask = getDocument({
+  const pdfJs = await loadPdfJs();
+  const loadingTask = pdfJs.getDocument({
     data,
     disableFontFace: true,
     isEvalSupported: false,
     stopAtErrors: true,
     useSystemFonts: false,
     useWasm: false,
-    verbosity: VerbosityLevel.ERRORS,
+    verbosity: pdfJs.VerbosityLevel.ERRORS,
   });
 
   try {
@@ -187,7 +229,7 @@ export const parsePdfText: PdfTextParser = async (data, limits) => {
 
       if (!/[\p{L}\p{N}]/u.test(pageText)) {
         const operators = await page.getOperatorList();
-        hasImages ||= hasImageOperator(operators);
+        hasImages ||= hasImageOperator(operators, pdfJs);
       }
     }
 
@@ -201,7 +243,7 @@ export const parsePdfText: PdfTextParser = async (data, limits) => {
       throw error;
     }
 
-    const classifiedCode = classifyPdfParserError(error);
+    const classifiedCode = classifyPdfParserError(error, pdfJs);
     if (classifiedCode) {
       throw new ResumeProcessingError(classifiedCode);
     }
