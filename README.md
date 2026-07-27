@@ -9,10 +9,10 @@ works independently of Tessera.
 
 ## Current Repository State
 
-This repository contains Tessera's onboarding entry point and a working
-portfolio builder with live preview, validation, and deterministic ZIP export.
-Resume import, GitHub import, AI operations, authentication, and persistence are
-not implemented.
+This repository contains Tessera's onboarding entry point, deterministic
+server-side PDF resume text extraction, and a working portfolio builder with
+live preview, validation, and deterministic ZIP export. Structured AI resume
+extraction, GitHub import, authentication, and persistence are not implemented.
 
 The frozen architectural invariant is:
 
@@ -48,10 +48,29 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 for onboarding, or visit
-http://localhost:3000/builder to open the builder directly. The `/resume` route
-is an explicit Stage 1 boundary page; resume upload and extraction are not
-implemented.
+Open http://localhost:3000 for onboarding, visit http://localhost:3000/resume
+to extract plain text from a PDF, or visit http://localhost:3000/builder to open
+the builder directly.
+
+The resume route processes the PDF temporarily in server memory. It does not
+persist the raw file, call an AI service, perform OCR, or hydrate the builder.
+
+### Resume processing limits
+
+Safe defaults are used when the following server-only environment variables are
+missing, invalid, zero, negative, non-integer, or outside their accepted bounds:
+
+| Variable                                        | Default | Accepted range  |
+| ----------------------------------------------- | ------- | --------------- |
+| `RESUME_MAX_UPLOAD_BYTES`                       | 5 MiB   | 1 KiB–25 MiB    |
+| `RESUME_MAX_PAGES`                              | 20      | 1–100           |
+| `RESUME_MAX_TEXT_CHARACTERS`                    | 200,000 | 1,000–1,000,000 |
+| `RESUME_MIN_MEANINGFUL_ALPHANUMERIC_CHARACTERS` | 40      | 10–1,000        |
+
+Meaningful text must also contain at least five substantive tokens and enough
+letters to reject page numbers, isolated symbols, and punctuation-only parser
+output. The server remains authoritative; the client mirrors only the default
+5 MiB upload size for immediate feedback.
 
 ## Quality Commands
 

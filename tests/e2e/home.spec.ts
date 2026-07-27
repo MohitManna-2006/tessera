@@ -87,10 +87,10 @@ test("routes through every onboarding entry path", async ({ page }) => {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Resume import is coming next.",
+      name: "Extract your resume text.",
     }),
   ).toBeVisible();
-  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  await expect(page.getByLabel("Resume PDF")).toHaveCount(1);
   await page.getByRole("link", { name: "Back to Tessera" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator(".assembly-figure")).toHaveAttribute(
