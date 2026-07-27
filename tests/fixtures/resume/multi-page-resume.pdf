@@ -1,0 +1,66 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [4 0 R 5 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 171 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(FICTIONAL RESUME) Tj
+0 -19 Td
+(Candidate: Test Persona) Tj
+0 -19 Td
+(Summary: Builds deterministic software systems for imaginary products.) Tj
+ET
+
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 352 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(FICTIONAL EXPERIENCE CONTINUED) Tj
+0 -19 Td
+(Skills: TypeScript, React, Node.js, testing, accessibility.) Tj
+0 -19 Td
+(Experience: Created reliable tools and documented repeatable workflows.) Tj
+0 -19 Td
+(Education: Example Technical Institute, 2026.) Tj
+0 -19 Td
+(References: Available for this synthetic test document.) Tj
+ET
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000545 00000 n 
+0000000323 00000 n 
+0000000671 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1074
+%%EOF
