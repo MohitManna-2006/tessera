@@ -29,10 +29,335 @@ function watchBrowserIssues(page: Page) {
   return issues;
 }
 
+test("routes through every onboarding entry path", async ({ page }) => {
+  const browserIssues = watchBrowserIssues(page);
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Turn your experience into a portfolio you own.",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("img", {
+      name: "Five experience pieces assembling into a miniature portfolio.",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Build from my resume" }),
+  ).toHaveAttribute("href", "/resume");
+  await expect(
+    page.getByRole("link", { name: "Explore a sample" }),
+  ).toHaveAttribute("href", "/builder?source=sample");
+  await expect(
+    page.getByRole("link", { name: "Open builder" }),
+  ).toHaveAttribute("href", "/builder");
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Tessera" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  const openBuilder = page.getByRole("link", { name: "Open builder" });
+  await expect(openBuilder).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/builder$/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Edit portfolio" }),
+  ).toBeVisible();
+  await page.waitForTimeout(2500);
+
+  await page.goBack();
+  await expect(page.locator(".assembly-figure")).toHaveAttribute(
+    "data-assembly-phase",
+    "entering",
+    { timeout: 1200 },
+  );
+  await page.getByRole("link", { name: "Explore a sample" }).click();
+  await expect(page).toHaveURL(/\/builder\?source=sample$/);
+  await expect(page.getByLabel("Full name")).toHaveValue("Avery Morgan");
+
+  await page.goBack();
+  await expect(page.locator(".assembly-figure")).toHaveAttribute(
+    "data-assembly-phase",
+    "entering",
+    { timeout: 1200 },
+  );
+  await page.getByRole("link", { name: "Build from my resume" }).click();
+  await expect(page).toHaveURL(/\/resume$/);
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Resume import is coming next.",
+    }),
+  ).toBeVisible();
+  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  await page.getByRole("link", { name: "Back to Tessera" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(".assembly-figure")).toHaveAttribute(
+    "data-assembly-phase",
+    "entering",
+    { timeout: 1200 },
+  );
+  expect(browserIssues).toEqual([]);
+});
+
+test("automatically assembles, rests, resets gently, and begins a third cycle", async ({
+  page,
+}) => {
+  const browserIssues = watchBrowserIssues(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+
+  const figure = page.locator(".assembly-figure");
+  await expect(page.locator("[data-assembly-piece]")).toHaveCount(5);
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "0");
+  await expect(figure).toHaveAttribute("data-assembly-phase", "entering");
+  await expect(
+    page.getByRole("button", { name: "Replay assembly" }),
+  ).toHaveCount(0);
+
+  const openingMotion = await page.evaluate(() => {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>("[data-assembly-piece]"),
+      (piece) => {
+        const animation = piece.getAnimations()[0];
+        animation.pause();
+        animation.currentTime = 0;
+        const transform = new DOMMatrix(
+          window.getComputedStyle(piece).transform,
+        );
+        const timing = animation.effect?.getComputedTiming();
+
+        return {
+          name: piece.dataset.assemblyPiece,
+          delay: timing?.delay,
+          duration: timing?.duration,
+          x: Math.round(transform.m41),
+          y: Math.round(transform.m42),
+        };
+      },
+    );
+  });
+
+  expect(openingMotion).toEqual([
+    expect.objectContaining({
+      name: "profile",
+      delay: 180,
+      duration: 860,
+      y: expect.any(Number),
+    }),
+    expect.objectContaining({
+      name: "experience",
+      delay: 340,
+      duration: 900,
+      x: expect.any(Number),
+    }),
+    expect.objectContaining({
+      name: "projects",
+      delay: 520,
+      duration: 940,
+      x: expect.any(Number),
+    }),
+    expect.objectContaining({
+      name: "skills",
+      delay: 720,
+      duration: 900,
+      y: expect.any(Number),
+    }),
+    expect.objectContaining({
+      name: "education",
+      delay: 900,
+      duration: 920,
+      y: expect.any(Number),
+    }),
+  ]);
+  expect(openingMotion[0].y).toBeLessThanOrEqual(-50);
+  expect(openingMotion[1].x).toBeLessThanOrEqual(-55);
+  expect(openingMotion[2].x).toBeGreaterThanOrEqual(55);
+  expect(openingMotion[3].y).toBeGreaterThanOrEqual(45);
+  expect(openingMotion[4].y).toBeGreaterThanOrEqual(45);
+
+  await page.reload();
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "0");
+  await expect(figure).toHaveAttribute("data-assembly-phase", "entering");
+  await expect(figure).toHaveAttribute("data-assembly-phase", "assembled", {
+    timeout: 3200,
+  });
+
+  const firstSettledState = await page.evaluate(() => ({
+    completionOpacity: window.getComputedStyle(
+      document.querySelector(".assembly-completion-cue") as Element,
+    ).opacity,
+    pieces: Array.from(
+      document.querySelectorAll<HTMLElement>("[data-assembly-piece]"),
+      (piece) => {
+        const style = window.getComputedStyle(piece);
+        const transform = new DOMMatrix(style.transform);
+        return {
+          opacity: style.opacity,
+          x: Math.round(transform.m41),
+          y: Math.round(transform.m42),
+        };
+      },
+    ),
+  }));
+  expect(firstSettledState.completionOpacity).toBe("1");
+  expect(firstSettledState.pieces).toEqual(
+    Array.from({ length: 5 }, () => ({ opacity: "1", x: 0, y: 0 })),
+  );
+
+  await page.waitForTimeout(3500);
+  await expect(figure).toHaveAttribute("data-assembly-phase", "assembled");
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "0");
+
+  await expect(figure).toHaveAttribute("data-assembly-phase", "resetting", {
+    timeout: 1200,
+  });
+  await page.waitForTimeout(340);
+  const resetState = await page.evaluate(() => ({
+    frameOpacity: Number(
+      window.getComputedStyle(
+        document.querySelector(".assembly-frame") as Element,
+      ).opacity,
+    ),
+    pieceOpacity: Number(
+      window.getComputedStyle(
+        document.querySelector("[data-assembly-piece]") as Element,
+      ).opacity,
+    ),
+  }));
+  expect(resetState.frameOpacity).toBeGreaterThan(0);
+  expect(resetState.frameOpacity).toBeLessThan(1);
+  expect(resetState.pieceOpacity).toBeGreaterThan(0.06);
+  expect(resetState.pieceOpacity).toBeLessThan(1);
+
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "1", {
+    timeout: 1200,
+  });
+  await expect(figure).toHaveAttribute("data-assembly-phase", "entering", {
+    timeout: 1200,
+  });
+  await expect(figure).toHaveAttribute("data-assembly-phase", "assembled", {
+    timeout: 3200,
+  });
+
+  await page.waitForTimeout(3500);
+  await expect(figure).toHaveAttribute("data-assembly-phase", "assembled");
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "1");
+
+  await expect(figure).toHaveAttribute("data-assembly-phase", "resetting", {
+    timeout: 1200,
+  });
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "2", {
+    timeout: 1400,
+  });
+  await expect(figure).toHaveAttribute("data-assembly-phase", "entering", {
+    timeout: 1200,
+  });
+  expect(browserIssues).toEqual([]);
+});
+
+test("supports direct builder routes and unknown source values safely", async ({
+  page,
+}) => {
+  for (const route of [
+    "/builder",
+    "/builder?source=sample",
+    "/builder?source=unknown",
+  ]) {
+    await page.goto(route);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Edit portfolio" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Full name")).toHaveValue("Avery Morgan");
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Avery Morgan" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Download code" }),
+    ).toBeVisible();
+  }
+});
+
+test("keeps onboarding composed at narrow width and under reduced motion", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  const pageWidth = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(pageWidth.document).toBeLessThanOrEqual(pageWidth.viewport);
+  await expect(
+    page.getByRole("link", { name: "Build from my resume" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Explore a sample" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Replay assembly" }),
+  ).toHaveCount(0);
+  const figure = page.locator(".assembly-figure");
+  await expect(figure).toHaveAttribute("data-assembly-phase", "assembled");
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "0");
+  const reducedState = await page.evaluate(() => ({
+    surface: {
+      animationName: window.getComputedStyle(
+        document.querySelector(".assembly-surface") as Element,
+      ).animationName,
+      opacity: window.getComputedStyle(
+        document.querySelector(".assembly-surface") as Element,
+      ).opacity,
+    },
+    completion: {
+      animationName: window.getComputedStyle(
+        document.querySelector(".assembly-completion-cue") as Element,
+      ).animationName,
+      opacity: window.getComputedStyle(
+        document.querySelector(".assembly-completion-cue") as Element,
+      ).opacity,
+    },
+    pieces: Array.from(
+      document.querySelectorAll<HTMLElement>("[data-assembly-piece]"),
+      (piece) => {
+        const style = window.getComputedStyle(piece);
+        return {
+          animationName: style.animationName,
+          opacity: style.opacity,
+          transform: style.transform,
+        };
+      },
+    ),
+  }));
+  expect(reducedState.surface).toEqual({
+    animationName: "none",
+    opacity: "1",
+  });
+  expect(reducedState.completion).toEqual({
+    animationName: "none",
+    opacity: "1",
+  });
+  expect(reducedState.pieces).toEqual(
+    Array.from({ length: 5 }, () => ({
+      animationName: "none",
+      opacity: "1",
+      transform: "none",
+    })),
+  );
+
+  await page.waitForTimeout(7600);
+  await expect(figure).toHaveAttribute("data-assembly-phase", "assembled");
+  await expect(figure).toHaveAttribute("data-assembly-cycle", "0");
+});
+
 test("edits the portfolio, validates links, and resets the fixture", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/builder");
 
   await expect(
     page.getByRole("heading", { level: 1, name: "Edit portfolio" }),
@@ -76,7 +401,7 @@ test("supports independent disclosures, zero open sections, and canonical order"
   page,
 }) => {
   const browserIssues = watchBrowserIssues(page);
-  await page.goto("/");
+  await page.goto("/builder");
 
   const collapseProfile = page.getByRole("button", {
     name: "Collapse Profile section",
@@ -169,7 +494,7 @@ test("downloads one edited standalone ZIP and restores focus on desktop", async 
       exportRequests += 1;
     }
   });
-  await page.goto("/");
+  await page.goto("/builder");
 
   const wordmark = page.getByText("Tessera", { exact: true });
   const originalWordmark = await wordmark.evaluate(
@@ -238,7 +563,7 @@ test("blocks invalid export before the request boundary", async ({ page }) => {
       exportRequests += 1;
     }
   });
-  await page.goto("/");
+  await page.goto("/builder");
 
   await page.getByRole("button", { name: "Expand Links section" }).click();
   const email = page.getByLabel("Email");
@@ -297,7 +622,7 @@ test("preserves the draft through controlled failure, close, and retry", async (
     const response = await route.fetch();
     await route.fulfill({ response });
   });
-  await page.goto("/");
+  await page.goto("/builder");
 
   const nameInput = page.getByLabel("Full name");
   const downloadButton = page.getByRole("button", {
@@ -344,7 +669,7 @@ test("keeps disclosure and Edit/Preview behavior stable on mobile", async ({
 }) => {
   const browserIssues = watchBrowserIssues(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/builder");
 
   const editTab = page.getByRole("tab", { name: "Edit" });
   const previewTab = page.getByRole("tab", { name: "Preview" });
@@ -390,7 +715,7 @@ test("downloads successfully from the centered mobile dialog", async ({
   const browserIssues = watchBrowserIssues(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
+  await page.goto("/builder");
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download code" }).click();
@@ -441,7 +766,7 @@ test("keeps the export dialog centered at the tablet breakpoint", async ({
 }) => {
   const browserIssues = watchBrowserIssues(page);
   await page.setViewportSize({ width: 1024, height: 768 });
-  await page.goto("/");
+  await page.goto("/builder");
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download code" }).click();
@@ -475,7 +800,7 @@ test("keeps the export dialog centered at the tablet breakpoint", async ({
 
 test("does not overflow horizontally at 320px", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
-  await page.goto("/");
+  await page.goto("/builder");
 
   await page.getByRole("button", { name: "Collapse Profile section" }).click();
   const editWidth = await page.evaluate(() => ({

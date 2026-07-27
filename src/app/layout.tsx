@@ -13,8 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Portfolio builder · Tessera",
-  description: "Edit and preview a developer portfolio with Tessera.",
+  title: {
+    default: "Tessera · Developer portfolios you own",
+    template: "%s · Tessera",
+  },
+  description:
+    "Bring your developer experience together in an editable portfolio and download the complete codebase.",
 };
 
 export default function RootLayout({
