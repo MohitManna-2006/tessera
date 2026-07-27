@@ -1,4 +1,5 @@
 import "server-only";
+import "pdfjs-dist/legacy/build/pdf.worker.mjs";
 
 import {
   getDocument,
