@@ -1,0 +1,27 @@
+# Portfolio
+
+This is a standalone Next.js portfolio project.
+
+## Requirements
+
+- Node.js 20.9 or newer
+- npm
+
+## Development
+
+```bash
+npm ci
+npm run dev
+```
+
+Open http://localhost:3000.
+
+## Quality Checks
+
+```bash
+npm run format:check
+npm run typecheck
+npm run build
+```
+
+Portfolio content lives in `src/data/portfolio.json`.

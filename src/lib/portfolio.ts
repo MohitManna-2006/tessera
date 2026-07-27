@@ -9,6 +9,8 @@ export const PORTFOLIO_SECTION_ORDER = [
 
 export type PortfolioSectionId = (typeof PORTFOLIO_SECTION_ORDER)[number];
 
+export const PORTFOLIO_SCHEMA_VERSION = 1 as const;
+
 export type Experience = {
   organization: string;
   role: string;

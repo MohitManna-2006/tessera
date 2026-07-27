@@ -1,0 +1,84 @@
+export const PORTFOLIO_SECTION_ORDER = [
+  "profile",
+  "links",
+  "experience",
+  "projects",
+  "skills",
+  "education",
+] as const;
+
+export type PortfolioSectionId = (typeof PORTFOLIO_SECTION_ORDER)[number];
+
+export type Experience = {
+  organization: string;
+  role: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  highlights: [string, string];
+};
+
+export type Project = {
+  name: string;
+  summary: string;
+  highlights: [string, string];
+  technologies: string;
+  repositoryUrl: string;
+  liveUrl: string;
+  featured: boolean;
+};
+
+export type SkillGroup = {
+  name: string;
+  skills: string;
+};
+
+export type Portfolio = {
+  profile: {
+    fullName: string;
+    headline: string;
+    biography: string;
+    location: string;
+  };
+  links: {
+    email: string;
+    githubUrl: string;
+    linkedinUrl: string;
+  };
+  experience: [Experience, Experience];
+  projects: [Project, Project, Project];
+  skillGroups: [SkillGroup, SkillGroup, SkillGroup];
+  education: {
+    institution: string;
+    degree: string;
+    field: string;
+    startDate: string;
+    endDate: string;
+  };
+};
+
+export function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+export function isValidHttpUrl(value: string): boolean {
+  if (!value.trim()) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function formatUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.hostname.replace(/^www\./, "")}${url.pathname.replace(/\/$/, "")}`;
+  } catch {
+    return value;
+  }
+}
