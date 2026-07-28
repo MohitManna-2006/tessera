@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 
 import { OnboardingHeader } from "@/components/onboarding/onboarding-page";
 import { ResumeUpload } from "@/components/resume/resume-upload";
+import { isResumeAiAvailable } from "@/lib/resume-ai/config.server";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Resume text extraction",
@@ -13,7 +16,7 @@ export default function ResumePage() {
   return (
     <div className="onboarding-shell">
       <OnboardingHeader />
-      <ResumeUpload />
+      <ResumeUpload aiAvailable={isResumeAiAvailable()} />
     </div>
   );
 }

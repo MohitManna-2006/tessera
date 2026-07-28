@@ -11,8 +11,11 @@ works independently of Tessera.
 
 This repository contains Tessera's onboarding entry point, deterministic
 server-side PDF resume text extraction, and a working portfolio builder with
-live preview, validation, and deterministic ZIP export. Structured AI resume
-extraction, GitHub import, authentication, and persistence are not implemented.
+live preview, validation, and deterministic ZIP export. It also contains an
+opt-in, feature-flagged AI resume drafting flow that produces an evidence-backed
+private `ResumeDraftV1` for guided review. GitHub import, authentication,
+durable persistence, and conversion of a confirmed resume draft into builder
+state are not implemented.
 
 The frozen architectural invariant is:
 
@@ -53,7 +56,10 @@ to extract plain text from a PDF, or visit http://localhost:3000/builder to open
 the builder directly.
 
 The resume route processes the PDF temporarily in server memory. It does not
-persist the raw file, call an AI service, perform OCR, or hydrate the builder.
+persist the raw file or perform OCR. AI drafting is a separate explicit action:
+when enabled, only extracted plain text and bounded source metadata are sent to
+the configured provider. The original PDF is never sent, and a reviewed draft
+does not hydrate the builder.
 
 ### Resume processing limits
 
@@ -71,6 +77,26 @@ Meaningful text must also contain at least five substantive tokens and enough
 letters to reject page numbers, isolated symbols, and punctuation-only parser
 output. The server remains authoritative; the client mirrors only the default
 5 MiB upload size for immediate feedback.
+
+### AI resume drafting
+
+AI resume drafting is disabled by default and becomes available only when all
+three server-only variables are configured:
+
+| Variable                       | Purpose                                   |
+| ------------------------------ | ----------------------------------------- |
+| `AI_RESUME_EXTRACTION_ENABLED` | Must be exactly `true` to show the action |
+| `OPENAI_API_KEY`               | Server-only OpenAI credential             |
+| `OPENAI_RESUME_MODEL`          | Explicit model used for resume drafting   |
+
+The operation is fixed to `extract_resume`, uses a strict structured-output
+schema, does not enable provider tools, and stores the temporary review state
+only in the current tab's `sessionStorage` for up to 30 minutes. Automated tests
+mock the provider or network boundary and never require a real key.
+
+Do not enable the AI route for public traffic until durable rate limiting,
+request accounting, and abuse controls are deployed at the application or edge
+boundary.
 
 ## Quality Commands
 

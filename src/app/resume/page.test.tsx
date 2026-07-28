@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -6,15 +7,31 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ResumeExtractionResult } from "@/lib/resume/contracts";
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => navigation,
+}));
+
+import type {
+  ResumeExtractionResult,
+  ResumeExtractionSuccess,
+} from "@/lib/resume/contracts";
+import { normalizeProviderResumeDraft } from "@/lib/resume-draft/normalization";
+import { readResumeTransferState } from "@/lib/resume-review/transfer-store";
+import { validProviderResumeDraft } from "../../../tests/fixtures/resume-ai/fixtures";
 import ResumePage from "./page";
 
 const extractedText =
   "<script>alert('not markup')</script>\n" +
   "FICTIONAL RESUME\nTest Persona builds reliable tools and documents accessible workflows.";
-const successResult: ResumeExtractionResult = {
+const successResult: ResumeExtractionSuccess = {
   ok: true,
   status: "success",
   data: {
@@ -64,9 +81,23 @@ function getDropZone() {
   return dropZone;
 }
 
+function generatedDraft() {
+  return normalizeProviderResumeDraft({
+    providerOutput: structuredClone(validProviderResumeDraft),
+    sourceText: extractedText,
+    source: {
+      filename: successResult.data.filename,
+      pageCount: successResult.data.pageCount,
+    },
+  });
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  navigation.push.mockReset();
+  sessionStorage.clear();
 });
 
 describe("resume upload page", () => {
@@ -247,6 +278,32 @@ describe("resume upload page", () => {
     expect(form).toHaveAttribute("aria-busy", "false");
   });
 
+  it("completes extraction after the development effect replay", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(successResult));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrictMode>
+        <ResumePage />
+      </StrictMode>,
+    );
+
+    await user.upload(getFileInput(), pdfFile());
+    await user.click(
+      screen.getByRole("button", { name: "Extract resume text" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Resume text extracted" }),
+      ).toBeVisible(),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "Processing resume…" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders successful extraction as inert plain text with exact metadata", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -345,5 +402,182 @@ describe("resume upload page", () => {
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled();
+  });
+
+  it("aborts a stalled extraction and returns to a retryable error state", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestSignal = init?.signal ?? undefined;
+          requestSignal?.addEventListener(
+            "abort",
+            () => {
+              reject(
+                new DOMException("The request was aborted.", "AbortError"),
+              );
+            },
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ResumePage />);
+
+    fireEvent.change(getFileInput(), {
+      target: { files: [pdfFile()] },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Extract resume text" }),
+    );
+    expect(screen.getByText("Extracting resume text")).toBeVisible();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestSignal?.aborted).toBe(true);
+    expect(
+      within(screen.getByRole("alert")).getByText(
+        /Resume extraction took too long/i,
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Processing resume…" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("creates a draft only after explicit approval and transfers validated tab state", async () => {
+    const user = userEvent.setup();
+    vi.stubEnv("AI_RESUME_EXTRACTION_ENABLED", "true");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("OPENAI_RESUME_MODEL", "configured-model");
+    let resolveDraft: ((response: Response) => void) | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(successResult))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveDraft = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ResumePage />);
+
+    await user.upload(getFileInput(), pdfFile());
+    await user.click(
+      screen.getByRole("button", { name: "Extract resume text" }),
+    );
+    const createDraftButton = await screen.findByRole("button", {
+      name: "Create my portfolio draft",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      screen.getByText(/extracted text—not the original PDF/i),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByText("What gets sent?", { selector: "summary" }),
+    );
+    expect(
+      screen.getByText(/contact details present in the text may be included/i),
+    ).toBeVisible();
+
+    await user.click(createDraftButton);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Creating structured draft", { selector: "p" }),
+    ).toBeVisible();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, requestInit] = fetchMock.mock.calls[1]!;
+    const body = JSON.parse(String(requestInit?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(body).toMatchObject({
+      operation: "extract_resume",
+      text: extractedText,
+      source: {
+        filename: "fictional-resume.pdf",
+        pageCount: 2,
+        characterCount: extractedText.length,
+      },
+    });
+    expect(requestInit?.body).not.toBeInstanceOf(FormData);
+
+    resolveDraft?.(
+      new Response(JSON.stringify({ ok: true, data: generatedDraft() }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() =>
+      expect(navigation.push).toHaveBeenCalledWith("/resume/review"),
+    );
+    expect(readResumeTransferState(sessionStorage)).toMatchObject({
+      storageVersion: 1,
+      extractedText,
+      draft: { operation: "extract_resume" },
+    });
+  });
+
+  it("keeps extracted text on an AI error and supports an explicit retry", async () => {
+    const user = userEvent.setup();
+    vi.stubEnv("AI_RESUME_EXTRACTION_ENABLED", "true");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("OPENAI_RESUME_MODEL", "configured-model");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(successResult))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: "PROVIDER_RATE_LIMITED",
+              message:
+                "Resume drafting is busy right now. Try again in a moment.",
+              retryable: true,
+            },
+          }),
+          { status: 429 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, data: generatedDraft() }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ResumePage />);
+
+    await user.upload(getFileInput(), pdfFile());
+    await user.click(
+      screen.getByRole("button", { name: "Extract resume text" }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Create my portfolio draft",
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Resume drafting is busy right now/i),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Extracted plain text")).toHaveValue(
+      extractedText,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(navigation.push).toHaveBeenCalledWith("/resume/review"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

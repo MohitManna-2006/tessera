@@ -2,6 +2,15 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
+import { ResumeExtractionRequestV1Schema } from "../../src/lib/resume-draft/contracts";
+import { normalizeProviderResumeDraft } from "../../src/lib/resume-draft/normalization";
+import type { ProviderResumeDraftV1 } from "../../src/lib/resume-draft/provider-contract";
+import {
+  experiencedEngineerResumeText,
+  providerOutputFixtures,
+  validProviderResumeDraft,
+} from "../fixtures/resume-ai/fixtures";
+
 const fixture = (name: string) =>
   join(process.cwd(), "tests", "fixtures", "resume", name);
 
@@ -16,6 +25,38 @@ function watchBrowserIssues(page: Page) {
     issues.push(`pageerror: ${error.message}`);
   });
   return issues;
+}
+
+async function mockSuccessfulTextExtraction(page: Page) {
+  await page.route("**/api/resume/extract", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        status: "success",
+        data: {
+          filename: "valid-resume.pdf",
+          pageCount: 1,
+          characterCount: experiencedEngineerResumeText.length,
+          text: experiencedEngineerResumeText,
+          warnings: [],
+        },
+      }),
+    });
+  });
+}
+
+function normalizeMockedDraft(
+  requestBody: unknown,
+  providerOutput: unknown = validProviderResumeDraft,
+) {
+  const input = ResumeExtractionRequestV1Schema.parse(requestBody);
+  return normalizeProviderResumeDraft({
+    providerOutput,
+    sourceText: input.text,
+    source: input.source,
+  });
 }
 
 test("processes a real PDF once and renders trustworthy plain-text metadata", async ({
@@ -100,6 +141,330 @@ test("processes a real PDF once and renders trustworthy plain-text metadata", as
     page.getByRole("heading", { name: "Resume text extracted" }),
   ).toHaveCount(0);
   expect(browserIssues).toEqual([]);
+});
+
+test("creates one evidence-backed draft from extracted text through a mocked AI boundary", async ({
+  page,
+}) => {
+  const browserIssues = watchBrowserIssues(page);
+  const draftRequests: unknown[] = [];
+
+  await page.route("**/api/resume/draft", async (route) => {
+    const requestBody = route.request().postDataJSON();
+    draftRequests.push(requestBody);
+    const input = ResumeExtractionRequestV1Schema.parse(requestBody);
+    const draft = normalizeProviderResumeDraft({
+      providerOutput: structuredClone(validProviderResumeDraft),
+      sourceText: input.text,
+      source: input.source,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data: draft }),
+    });
+  });
+
+  await page.goto("/resume");
+  await page
+    .getByLabel("Resume PDF")
+    .setInputFiles(fixture("valid-resume.pdf"));
+  await page.getByRole("button", { name: "Extract resume text" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Resume text extracted" }),
+  ).toBeVisible();
+  expect(draftRequests).toHaveLength(0);
+
+  const createDraft = page.getByRole("button", {
+    name: "Create my portfolio draft",
+  });
+  await expect(createDraft).toBeVisible();
+  await createDraft.evaluate((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Draft creation action is not a button.");
+    }
+    button.click();
+    button.click();
+  });
+
+  await expect(
+    page.getByRole("dialog", { name: "Creating your portfolio draft" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Creating portfolio draft…" }),
+  ).toBeDisabled();
+  await page.waitForURL("**/resume/review");
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Your portfolio draft is ready.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("0 of 5 sections reviewed")).toBeVisible();
+  await expect(page.getByText("Alex Rivera", { exact: true })).toBeVisible();
+
+  expect(draftRequests).toHaveLength(1);
+  const request = ResumeExtractionRequestV1Schema.parse(draftRequests[0]);
+  expect(
+    Object.keys(draftRequests[0] as Record<string, unknown>).sort(),
+  ).toEqual(["operation", "source", "text"]);
+  expect(request.operation).toBe("extract_resume");
+  expect(request.text).toContain("FICTIONAL RESUME");
+  expect(request.source).toMatchObject({
+    filename: "valid-resume.pdf",
+    pageCount: 1,
+    characterCount: request.text.length,
+  });
+  expect(
+    await page.evaluate(() => {
+      const stored = window.sessionStorage.getItem("tessera.resume-review.v1");
+      return stored ? JSON.parse(stored).draft.operation : null;
+    }),
+  ).toBe("extract_resume");
+  expect(browserIssues).toEqual([]);
+});
+
+test("supports the full guided review, recovery, validation, and private confirmation flow", async ({
+  page,
+}) => {
+  const browserIssues = watchBrowserIssues(page);
+  const providerOutput: ProviderResumeDraftV1 = {
+    ...structuredClone(
+      providerOutputFixtures.evidence_mismatch_provider_output,
+    ),
+    warnings: [
+      {
+        section: "education",
+        field: null,
+        entryIndex: null,
+        itemIndex: null,
+        severity: "review",
+        category: "ambiguous_source",
+        message: "Confirm the education details before using this draft.",
+      },
+    ],
+  };
+
+  await mockSuccessfulTextExtraction(page);
+  await page.route("**/api/resume/draft", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        data: normalizeMockedDraft(
+          route.request().postDataJSON(),
+          providerOutput,
+        ),
+      }),
+    });
+  });
+
+  await page.goto("/resume");
+  await page
+    .getByLabel("Resume PDF")
+    .setInputFiles(fixture("valid-resume.pdf"));
+  await page.getByRole("button", { name: "Extract resume text" }).click();
+
+  const disclosure = page.getByText("What gets sent?", { exact: true });
+  await disclosure.click();
+  await expect(
+    page.getByText(/extracted plain text is sent to the AI provider/i),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create my portfolio draft" }).click();
+  await page.waitForURL("**/resume/review");
+
+  await expect(
+    page.getByText(/1 experience, 1 project, 3 skills, 1 education entry/i),
+  ).toBeVisible();
+  const profileSection = page.getByRole("button", { name: /^Profile/ });
+  await expect(profileSection).toHaveAttribute("aria-current", "page");
+  const needsReview = page.getByRole("button", { name: "Needs review · 2" });
+  await needsReview.click();
+  await expect(needsReview).toHaveAttribute("aria-pressed", "true");
+
+  const reviewSource = page.getByRole("button", { name: "Review source" });
+  await reviewSource.click();
+  const evidence = page.getByRole("dialog", { name: "Name" });
+  await expect(evidence).toContainText("A completely absent excerpt");
+  await evidence.getByRole("button", { name: "Close" }).click();
+  await expect(reviewSource).toBeFocused();
+
+  await needsReview.click();
+  await reviewSource.click();
+  await evidence.getByRole("button", { name: "Edit value" }).click();
+  const name = page.getByRole("textbox", { name: "Name" });
+  await expect(name).toBeFocused();
+  await name.fill("Alex R. Rivera");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(
+    page.getByRole("button", { name: "Needs review · 1" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Looks right" }).click();
+
+  await page.getByRole("button", { name: /^Skills/ }).click();
+  await page.getByRole("button", { name: "Add skill" }).click();
+  await page.getByRole("textbox", { name: "Skill" }).fill("GraphQL");
+  await page.getByRole("button", { name: "Add entry" }).click();
+  await expect(page.getByText("GraphQL", { exact: true })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Remove GraphQL" }).click();
+  await expect(page.getByText("GraphQL", { exact: true })).toHaveCount(0);
+
+  const fullSourceTrigger = page.getByRole("button", {
+    name: "View full resume text",
+  });
+  await fullSourceTrigger.click();
+  const fullSource = page.getByRole("dialog", { name: "Full resume text" });
+  await expect(fullSource).toContainText("Alex Rivera");
+  await fullSource.getByRole("button", { name: "Close" }).click();
+  await expect(fullSourceTrigger).toBeFocused();
+
+  await page.reload();
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Your portfolio draft is ready.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Alex R. Rivera", { exact: true })).toBeVisible();
+
+  for (const section of [
+    "Profile",
+    "Experience",
+    "Projects",
+    "Skills",
+    "Education",
+  ]) {
+    await page.getByRole("button", { name: new RegExp(`^${section}`) }).click();
+    const approval = page.getByRole("button", {
+      name: /^(Looks right|Section reviewed)$/,
+    });
+    if (await approval.isEnabled()) {
+      await approval.click();
+    }
+  }
+  await expect(page.getByText("5 of 5 sections reviewed")).toBeVisible();
+
+  await page.evaluate(() => {
+    const key = "tessera.resume-review.v1";
+    const serialized = window.sessionStorage.getItem(key);
+    if (!serialized) throw new Error("Expected a temporary review draft.");
+    const envelope = JSON.parse(serialized);
+    envelope.draft.draft.projects[0].name = null;
+    window.sessionStorage.setItem(key, JSON.stringify(envelope));
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Confirm portfolio draft" }).click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Projects" }),
+  ).toBeFocused();
+  await expect(page.getByRole("status")).toContainText(
+    "Each project needs a name.",
+  );
+
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Project name" })
+    .fill("Trace Garden");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("button", { name: "Looks right" }).click();
+
+  await page.getByRole("button", { name: "Confirm portfolio draft" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Confirm with details to revisit?",
+  });
+  await expect(confirmation).toContainText("1 detail remains");
+  await confirmation.getByRole("button", { name: "Keep reviewing" }).click();
+  await expect(confirmation).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Confirm portfolio draft" }).click();
+  await confirmation
+    .getByRole("button", { name: "Continue with current values" })
+    .click();
+  await expect(
+    page.getByText(/Private portfolio draft confirmed/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Draft confirmed" }),
+  ).toBeDisabled();
+  expect(page.url()).toContain("/resume/review");
+  expect(page.url()).not.toContain("/builder");
+  expect(browserIssues).toEqual([]);
+});
+
+test("preserves extracted text through a generation failure and explicit retry", async ({
+  page,
+}) => {
+  await mockSuccessfulTextExtraction(page);
+  let attempts = 0;
+  await page.route("**/api/resume/draft", async (route) => {
+    attempts += 1;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          error: {
+            code: "PROVIDER_UNAVAILABLE",
+            message:
+              "Portfolio drafting is temporarily unavailable. Try again.",
+            retryable: true,
+          },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        data: normalizeMockedDraft(route.request().postDataJSON()),
+      }),
+    });
+  });
+
+  await page.goto("/resume");
+  await page
+    .getByLabel("Resume PDF")
+    .setInputFiles(fixture("valid-resume.pdf"));
+  await page.getByRole("button", { name: "Extract resume text" }).click();
+  await page.getByRole("button", { name: "Create my portfolio draft" }).click();
+
+  const errorDialog = page.getByRole("dialog", {
+    name: "Draft creation couldn’t finish",
+  });
+  await expect(errorDialog).toContainText(
+    "Portfolio drafting is temporarily unavailable.",
+  );
+  await expect(page.getByLabel("Extracted plain text")).toContainText(
+    "Alex Rivera",
+  );
+  await errorDialog.getByRole("button", { name: "Try again" }).click();
+  await page.waitForURL("**/resume/review");
+  expect(attempts).toBe(2);
+});
+
+test("shows recoverable direct-entry state without mobile overflow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/resume/review");
+  await expect(
+    page.getByRole("heading", { name: "A resume draft isn’t available." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Return to resume" }),
+  ).toBeVisible();
+  const dimensions = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
 });
 
 test("supports keyboard-only native file selection and replacement", async ({
