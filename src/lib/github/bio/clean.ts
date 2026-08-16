@@ -23,12 +23,20 @@ export function cleanReadmeContent(raw: string): string {
   text = text.replace(/<[^>]*>/gu, " ");
 
   // Remove badge/image lines: [![..., ![...
-  // Keep alt text for normal images? No — strip entirely to avoid "build passing" noise
   text = text.replace(/!\[[^\]]*\]\([^)]*\)/gu, " ");
   text = text.replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/gu, " ");
 
-  // Remove reference-style link definitions? keep link text
+  // Keep link text, drop URL
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/gu, "$1");
+
+  // Remove markdown emphasis ** ** and __ __
+  text = text.replace(/\*\*([^*]+)\*\*/gu, "$1");
+  text = text.replace(/__([^_]+)__/gu, "$1");
+  text = text.replace(/\*([^*]+)\*/gu, "$1");
+  text = text.replace(/_([^_]+)_/gu, "$1");
+
+  // Remove blockquote marker >
+  text = text.replace(/^\s*>\s?/gmu, "");
 
   // Normalize horizontal rules
   text = text.replace(/^\s*[-*_]{3,}\s*$/gmu, " ");
@@ -44,7 +52,7 @@ export function cleanReadmeContent(raw: string): string {
   }
   text = lines.slice(0, cutIndex).join("\n");
 
-  // Collapse excessive blank lines and whitespace per line
+  // Collapse whitespace per line but preserve paragraph breaks
   text = text
     .split(/\n/u)
     .map((l) => l.replace(/\s+/gu, " ").trimEnd())
@@ -61,7 +69,8 @@ export function isFeatureHeading(line: string): boolean {
 }
 
 /**
- * Extract bullet items under a feature heading, deterministically.
+ * Extract bullet items ONLY under a feature heading.
+ * No fallback to generic top-level bullets — that was causing "Nonchalant." highlights.
  */
 export function extractFeatureBullets(cleaned: string): string[] {
   const lines = cleaned.split(/\n/u);
@@ -82,7 +91,6 @@ export function extractFeatureBullets(cleaned: string): string[] {
         continue;
       }
       if (inFeature && depth <= featureDepth) {
-        // left feature section
         inFeature = false;
       }
     }
@@ -90,22 +98,13 @@ export function extractFeatureBullets(cleaned: string): string[] {
       const bullet = line.match(/^[-*•]\s+(.+)/u);
       if (bullet) {
         const item = bullet[1]!.trim().replace(/\s+/gu, " ");
-        if (item.length >= 10 && item.length <= 200) bullets.push(item);
+        // Require meaningful feature bullet: at least 12 chars and contains a verb/noun phrase
+        if (item.length >= 12 && item.length <= 220) {
+          // Skip feeling-style single adjectives that slipped under feature heading
+          if (/^(minimal|high-aura|editorial|premium|technical|calm|nonchalant|recruiter-friendly|smooth|low-latency|intentional)$/iu.test(item)) continue;
+          bullets.push(item);
+        }
         if (bullets.length >= 6) break;
-      }
-    }
-  }
-  // Also capture top-level bullets near start if no feature heading bullets found
-  if (bullets.length === 0) {
-    for (const raw of lines.slice(0, 40)) {
-      const line = raw.trim();
-      const bullet = line.match(/^[-*•]\s+(.+)/u);
-      if (bullet) {
-        const item = bullet[1]!.trim().replace(/\s+/gu, " ");
-        // skip install/usage bullets
-        if (/^(npm|yarn|pnpm|pip|install|clone)/iu.test(item)) continue;
-        if (item.length >= 10 && item.length <= 200) bullets.push(item);
-        if (bullets.length >= 4) break;
       }
     }
   }
@@ -122,5 +121,41 @@ export function extractParagraphs(cleaned: string): string[] {
         .replace(/\s+/gu, " ")
         .trim(),
     )
-    .filter((p) => p.length >= 40 && p.length <= 1200);
+    .filter((p) => p.length >= 40 && p.length <= 1400);
+}
+
+/**
+ * Section-aware parse: heading -> body text (until next heading of same or higher level).
+ */
+export type ReadmeSection = { heading: string; level: number; body: string };
+
+export function parseSections(cleaned: string): ReadmeSection[] {
+  const lines = cleaned.split(/\n/u);
+  const sections: ReadmeSection[] = [];
+  let current: ReadmeSection | null = null;
+
+  for (const raw of lines) {
+    const m = raw.match(/^(#{1,6})\s+(.+)/u);
+    if (m) {
+      if (current) sections.push(current);
+      current = { heading: m[2]!.trim(), level: m[1]!.length, body: "" };
+    } else if (current) {
+      current.body += (current.body ? "\n" : "") + raw;
+    } else {
+      // Pre-amble before first heading
+      if (!sections.length) {
+        if (!current) current = { heading: "", level: 0, body: "" };
+        current.body += (current.body ? "\n" : "") + raw;
+      }
+    }
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
+/**
+ * Quick phrase existence check (case-insensitive).
+ */
+export function containsPhrase(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
 }
