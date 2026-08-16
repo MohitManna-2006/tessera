@@ -96,33 +96,19 @@ export function mergeGitHubIntoPortfolio(
     return repoToProject(repo, fallback, index < 2, envelope);
   }) as [Project, Project, Project];
 
-  // Profile: overwrite if empty (recommended) — keep resume data when present
-  const isEmpty = (value: string) => !value.trim();
-  const githubName = envelope.profile?.name?.trim() ?? "";
+  // Profile: GitHub is source of truth when available — fixes "Avery Morgan" staying after import
+  const githubName =
+    envelope.profile?.name?.trim() || envelope.profile?.login?.trim() || "";
   const githubBio = envelope.profile?.bio?.trim() ?? "";
   const githubAvatar = envelope.profile?.avatarUrl?.trim() ?? "";
 
   const nextProfile = {
-    fullName:
-      isEmpty(base.profile.fullName) && githubName
-        ? githubName
-        : base.profile.fullName,
+    fullName: githubName || base.profile.fullName,
     headline: base.profile.headline,
-    biography:
-      isEmpty(base.profile.biography) && githubBio
-        ? githubBio
-        : base.profile.biography,
+    biography: githubBio || base.profile.biography,
     location: base.profile.location,
-    avatarUrl:
-      isEmpty(base.profile.avatarUrl) && githubAvatar
-        ? githubAvatar
-        : base.profile.avatarUrl,
+    avatarUrl: githubAvatar || base.profile.avatarUrl,
   };
-
-  // Fallback: if biography still empty and we have no resume bio, use GitHub profile name as headline hint
-  if (isEmpty(nextProfile.biography) && githubBio) {
-    nextProfile.biography = githubBio.slice(0, 500);
-  }
 
   return {
     ...base,
