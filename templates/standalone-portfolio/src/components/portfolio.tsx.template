@@ -41,6 +41,15 @@ export function PortfolioView({ portfolio }: { portfolio: Portfolio }) {
     profile: (
       <div data-portfolio-section="profile">
         <p className="preview-kicker">Software engineer</p>
+        {portfolio.profile.avatarUrl && isValidHttpUrl(portfolio.profile.avatarUrl) ? (
+          <img
+            src={portfolio.profile.avatarUrl}
+            alt={`${portfolio.profile.fullName || "Profile"} avatar`}
+            width={72}
+            height={72}
+            style={{ borderRadius: "50%", objectFit: "cover", border: "1px solid var(--border)", margin: "14px 0 0" }}
+          />
+        ) : null}
         <h1>{portfolio.profile.fullName || "Your name"}</h1>
         <p className="preview-headline">
           {portfolio.profile.headline || "Your professional headline"}
