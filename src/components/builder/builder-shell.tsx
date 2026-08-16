@@ -139,7 +139,7 @@ export function BuilderShell() {
     } catch {
       setHydrateNotice("Could not read the draft for this tab.");
     }
-  }, [hydratedRef]);
+  }, []);
 
   // Persist draft to sessionStorage on change (skip initial hydration tick)
   useEffect(() => {
