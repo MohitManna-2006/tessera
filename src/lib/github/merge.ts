@@ -2,25 +2,7 @@ import type { Portfolio, Project } from "@/lib/portfolio";
 import { createPortfolioDraft } from "@/lib/portfolio";
 import type { GitHubRepoV1 } from "./contracts";
 import type { GitHubEnvelopeV1 } from "./persistence";
-
-function getReadmeSnippet(
-  envelope: GitHubEnvelopeV1,
-  repoId: string,
-): string | null {
-  const readme = envelope.readmes[repoId];
-  if (!readme?.content) return null;
-  // Take first meaningful paragraph, strip markdown headings
-  const firstParagraph = readme.content
-    .split(/\n\s*\n/u)
-    .map((p) => p.trim())
-    .find((p) => p.length > 20);
-  if (!firstParagraph) return null;
-  // Remove leading markdown symbols
-  return firstParagraph
-    .replace(/^#+\s+/u, "")
-    .trim()
-    .slice(0, 400);
-}
+import { synthesizeHighlights, synthesizeSummary } from "./bio/synthesis";
 
 function repoToProject(
   repo: GitHubRepoV1,
@@ -33,36 +15,9 @@ function repoToProject(
       .filter((v): v is string => Boolean(v))
       .join(", ") || fallback.technologies;
 
-  const readmeSnippet = getReadmeSnippet(envelope, repo.id);
-  const summary = repo.description?.trim() || readmeSnippet || fallback.summary;
-
-  // Highlights: prefer description, then README, then topics
-  const rawHighlights: string[] = [];
-  const highlightSource = repo.description?.trim() || readmeSnippet || "";
-  if (highlightSource) {
-    const sentences = highlightSource
-      .split(/(?<=\.)\s+/u)
-      .map((s: string) => s.trim())
-      .filter(Boolean);
-    if (sentences[0]) rawHighlights.push(sentences[0].slice(0, 300));
-    if (sentences[1] && rawHighlights.length < 2)
-      rawHighlights.push(sentences[1].slice(0, 300));
-  }
-  if (rawHighlights.length < 2 && readmeSnippet) {
-    const secondPara = readmeSnippet.split(/(?<=\.)\s+/u)[1]?.trim();
-    if (secondPara && rawHighlights.length < 2)
-      rawHighlights.push(secondPara.slice(0, 300));
-  }
-  if (rawHighlights.length < 2 && repo.topics[0]) {
-    rawHighlights.push(`Built with ${repo.topics.slice(0, 3).join(", ")}`);
-  }
-
-  const highlights: [string, string] =
-    rawHighlights.length >= 2
-      ? [rawHighlights[0]!, rawHighlights[1]!]
-      : rawHighlights.length === 1
-        ? [rawHighlights[0]!, fallback.highlights[1]]
-        : fallback.highlights;
+  const readmeContent = envelope.readmes[repo.id]?.content ?? null;
+  const summary = synthesizeSummary(repo, readmeContent);
+  const highlights = synthesizeHighlights(repo, readmeContent);
 
   return {
     name: repo.name,
