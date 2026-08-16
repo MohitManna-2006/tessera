@@ -63,11 +63,21 @@ const REQUEST_TIMEOUT_FAILURE: ResumeExtractionFailure = {
 
 function localFailure(
   code: ResumeExtractionFailure["error"]["code"],
+  maxUploadBytes: number,
 ): ResumeExtractionFailure {
-  return createResumeExtractionFailure(code, DEFAULT_RESUME_PROCESSING_LIMITS);
+  return createResumeExtractionFailure(code, {
+    ...DEFAULT_RESUME_PROCESSING_LIMITS,
+    maxUploadBytes,
+  });
 }
 
-export function ResumeUpload({ aiAvailable }: { aiAvailable: boolean }) {
+export function ResumeUpload({
+  aiAvailable,
+  maxUploadBytes = CLIENT_MAX_RESUME_FILE_BYTES,
+}: {
+  aiAvailable: boolean;
+  maxUploadBytes?: number;
+}) {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [success, setSuccess] = useState<ResumeExtractionSuccess | null>(null);
@@ -124,10 +134,10 @@ export function ResumeUpload({ aiAvailable }: { aiAvailable: boolean }) {
     setSuccess(null);
     setFailure(null);
 
-    const selection = validateResumeFileSelection(files);
+    const selection = validateResumeFileSelection(files, maxUploadBytes);
     if (!selection.ok) {
       setSelectedFile(null);
-      setFailure(localFailure(selection.code));
+      setFailure(localFailure(selection.code, maxUploadBytes));
       clearInputValue();
       return;
     }
@@ -208,7 +218,7 @@ export function ResumeUpload({ aiAvailable }: { aiAvailable: boolean }) {
       return;
     }
     if (!selectedFile) {
-      setFailure(localFailure("missing_file"));
+      setFailure(localFailure("missing_file", maxUploadBytes));
       return;
     }
 
@@ -454,8 +464,7 @@ export function ResumeUpload({ aiAvailable }: { aiAvailable: boolean }) {
                     : "Drop your resume here"}
                 </h2>
                 <p id="resume-file-guidance">
-                  One text-based PDF, up to{" "}
-                  {formatFileSize(CLIENT_MAX_RESUME_FILE_BYTES)}.
+                  One text-based PDF, up to {formatFileSize(maxUploadBytes)}.
                 </p>
               </div>
               <button
