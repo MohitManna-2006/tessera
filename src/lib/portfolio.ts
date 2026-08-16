@@ -49,6 +49,7 @@ export type Portfolio = {
     headline: string;
     biography: string;
     location: string;
+    avatarUrl: string;
   };
   links: {
     email: string;
@@ -68,6 +69,7 @@ export const portfolioFixture: Portfolio = {
     biography:
       "I build practical web applications and internal tools with an emphasis on clear interfaces, reliable data flows, and maintainable systems.",
     location: "Portland, Oregon",
+    avatarUrl: "",
   },
   links: {
     email: "avery.morgan@example.com",

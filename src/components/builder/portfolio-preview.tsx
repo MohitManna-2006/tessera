@@ -58,6 +58,22 @@ export function PortfolioPreview({
     profile: (
       <div data-portfolio-section="profile">
         <p className="preview-kicker">Software engineer</p>
+        {portfolio.profile.avatarUrl &&
+        isValidHttpUrl(portfolio.profile.avatarUrl) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={portfolio.profile.avatarUrl}
+            alt={`${portfolio.profile.fullName || "Profile"} avatar`}
+            width={72}
+            height={72}
+            style={{
+              borderRadius: "50%",
+              objectFit: "cover",
+              border: "1px solid var(--border)",
+              margin: "14px 0 0",
+            }}
+          />
+        ) : null}
         <NameHeading>{portfolio.profile.fullName || "Your name"}</NameHeading>
         <p className="preview-headline">
           {portfolio.profile.headline || "Your professional headline"}

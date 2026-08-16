@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import {
   createPortfolioDraft,
@@ -49,47 +49,8 @@ function useCompactLayout() {
 }
 
 export function BuilderShell() {
-  const [draft, setDraft] = useState<Portfolio>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const source = params.get("source");
-
-        // Try hydration from resume and/or github when source param present
-        if (source) {
-          let base: Portfolio | null = null;
-          const resumeEnvelope = readResumeTransferState(window.sessionStorage);
-          if (resumeEnvelope) {
-            base = mapResumeDraftToPortfolio(resumeEnvelope.draft);
-          }
-          const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
-          if (githubEnvelope && githubEnvelope.selectedRepoIds.length > 0) {
-            const effectiveBase =
-              base ??
-              readBuilderDraft(window.sessionStorage) ??
-              createPortfolioDraft();
-            return mergeGitHubIntoPortfolio(effectiveBase, githubEnvelope);
-          }
-          if (base) return base;
-        }
-
-        const stored = readBuilderDraft(window.sessionStorage);
-        if (stored) {
-          // Also merge github on plain builder loads if github selection exists
-          const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
-          if (githubEnvelope && githubEnvelope.selectedRepoIds.length > 0) {
-            // Only merge if builder draft hasn't already been merged? We merge idempotently.
-            // Check if stored projects already match github selection by id mapping not trivial — so skip if source not present to avoid overwriting manual edits.
-            // For now, don't auto-merge without source param to preserve manual edits.
-          }
-          return stored;
-        }
-      } catch {
-        // fallback to fixture
-      }
-    }
-    return createPortfolioDraft();
-  });
+  const [draft, setDraft] = useState<Portfolio>(() => createPortfolioDraft());
+  const hydratedRef = useRef(false);
   const [openSections, setOpenSections] = useState<
     ReadonlySet<PortfolioSectionId>
   >(() => new Set([PORTFOLIO_SECTION_ORDER[0]]));
@@ -99,61 +60,90 @@ export function BuilderShell() {
   const [hydrateNotice, setHydrateNotice] = useState<string | null>(null);
   const isCompact = useCompactLayout();
 
-  // Handle hydration via ?source=resume|github
+  // Hydrate from sessionStorage after mount (fixes SSR hydration — server renders fixture, client merges)
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const source = params.get("source");
-    if (!source) return;
-    try {
-      const wantsResume = source.includes("resume");
-      const wantsGithub = source.includes("github");
-      const resumeEnvelope = wantsResume
-        ? readResumeTransferState(window.sessionStorage)
-        : null;
-      const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
-      const hasGithub = Boolean(
-        githubEnvelope && githubEnvelope.selectedRepoIds.length > 0,
-      );
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
 
-      if (wantsResume && resumeEnvelope) {
-        if (hasGithub) {
+    // Always try to restore persisted builder draft first (preserves manual edits when no ?source)
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const source = params.get("source");
+
+      if (source) {
+        // When ?source present, merge resume + GitHub into a fresh base
+        let base: Portfolio | null = null;
+        const resumeEnvelope = readResumeTransferState(window.sessionStorage);
+        if (resumeEnvelope) {
+          base = mapResumeDraftToPortfolio(resumeEnvelope.draft);
+        }
+        const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
+        const hasGithub = Boolean(
+          githubEnvelope && githubEnvelope.selectedRepoIds.length > 0,
+        );
+
+        let hydrated: Portfolio | null = null;
+        if (base && hasGithub) {
+          hydrated = mergeGitHubIntoPortfolio(base, githubEnvelope!);
           const count = githubEnvelope!.selectedRepoIds.length;
           setHydrateNotice(
             `Added experience from your resume and ${count} GitHub project${count === 1 ? "" : "s"} to your portfolio — review below before downloading.`,
           );
-        } else {
+        } else if (base) {
+          hydrated = base;
           setHydrateNotice(
             `Added experience from your resume to your portfolio — review below before downloading.`,
           );
+        } else if (hasGithub) {
+          const effectiveBase = createPortfolioDraft();
+          hydrated = mergeGitHubIntoPortfolio(effectiveBase, githubEnvelope!);
+          const count = githubEnvelope!.selectedRepoIds.length;
+          setHydrateNotice(
+            `Added ${count} GitHub project${count === 1 ? "" : "s"} to your portfolio — review below before downloading.`,
+          );
+        } else {
+          // source present but nothing to hydrate
+          if (source.includes("resume")) {
+            setHydrateNotice(
+              "No resume draft found in this tab. Upload a resume to start your portfolio.",
+            );
+          } else if (source.includes("github")) {
+            setHydrateNotice(
+              "No GitHub selection found. Import projects to add them to your portfolio.",
+            );
+          }
         }
-        const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.delete("source");
-        window.history.replaceState(null, "", nextUrl.toString());
-      } else if (wantsGithub && hasGithub) {
-        const count = githubEnvelope!.selectedRepoIds.length;
-        setHydrateNotice(
-          `Added ${count} GitHub project${count === 1 ? "" : "s"} to your portfolio — review below before downloading.`,
-        );
-        const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.delete("source");
-        window.history.replaceState(null, "", nextUrl.toString());
-      } else if (wantsResume && !resumeEnvelope) {
-        setHydrateNotice(
-          "No resume draft found in this tab. Upload a resume to start your portfolio.",
-        );
-      } else if (wantsGithub && !hasGithub) {
-        setHydrateNotice(
-          "No GitHub selection found. Import projects to add them to your portfolio.",
-        );
+
+        if (hydrated) {
+          setDraft(hydrated);
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.delete("source");
+          window.history.replaceState(null, "", nextUrl.toString());
+          return;
+        }
+
+        // If source was present but we hydrated nothing, still clean param
+        if (source.includes("resume") || source.includes("github")) {
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.delete("source");
+          window.history.replaceState(null, "", nextUrl.toString());
+        }
+        return;
+      }
+
+      // No ?source — restore persisted builder draft if any
+      const stored = readBuilderDraft(window.sessionStorage);
+      if (stored) {
+        setDraft(stored);
       }
     } catch {
       setHydrateNotice("Could not read the draft for this tab.");
     }
   }, []);
 
-  // Persist draft to sessionStorage on change
+  // Persist draft to sessionStorage on change (skip initial hydration tick)
   useEffect(() => {
+    if (!hydratedRef.current) return;
     if (typeof window === "undefined") return;
     try {
       writeBuilderDraft(window.sessionStorage, draft);

@@ -479,7 +479,13 @@ function readPortfolio(
     )
   ) {
     return {
-      profile: { fullName: "", headline: "", biography: "", location: "" },
+      profile: {
+        fullName: "",
+        headline: "",
+        biography: "",
+        location: "",
+        avatarUrl: "",
+      },
       links: { email: "", githubUrl: "", linkedinUrl: "" },
       experience: [
         {
@@ -547,7 +553,7 @@ function readPortfolio(
   const profileValue = value.profile;
   const profile = validateObjectKeys(
     profileValue,
-    ["fullName", "headline", "biography", "location"],
+    ["fullName", "headline", "biography", "location", "avatarUrl"],
     profilePath,
     issues,
     "profile",
@@ -585,8 +591,33 @@ function readPortfolio(
           "profile",
           "location",
         ),
+        avatarUrl: (() => {
+          const url = readString(
+            profileValue,
+            "avatarUrl",
+            profilePath,
+            issues,
+            "profile",
+            "avatar-url",
+          );
+          if (url && !isValidHttpUrl(url)) {
+            issues.push({
+              path: `${profilePath}.avatarUrl`,
+              message: "Enter a full URL beginning with http:// or https://.",
+              section: "profile",
+              fieldId: "avatar-url",
+            });
+          }
+          return url;
+        })(),
       }
-    : { fullName: "", headline: "", biography: "", location: "" };
+    : {
+        fullName: "",
+        headline: "",
+        biography: "",
+        location: "",
+        avatarUrl: "",
+      };
 
   const linksPath = "portfolio.links";
   const linksValue = value.links;

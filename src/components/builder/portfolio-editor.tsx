@@ -234,6 +234,20 @@ export function PortfolioEditor({
           value={portfolio.profile.location}
           onChange={(value) => updateProfile("location", value)}
         />
+        <Field
+          id="avatar-url"
+          label="Avatar URL"
+          value={portfolio.profile.avatarUrl}
+          onChange={(value) => updateProfile("avatarUrl", value)}
+          optional
+          inputMode="url"
+          error={
+            portfolio.profile.avatarUrl &&
+            !isValidHttpUrl(portfolio.profile.avatarUrl)
+              ? "Enter a full URL beginning with http:// or https://."
+              : undefined
+          }
+        />
       </EditorSection>
     ),
     links: (

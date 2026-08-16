@@ -39,6 +39,7 @@ export type Portfolio = {
     headline: string;
     biography: string;
     location: string;
+    avatarUrl: string;
   };
   links: {
     email: string;

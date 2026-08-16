@@ -197,6 +197,7 @@ export function mapResumeDraftToPortfolio(
       headline,
       biography,
       location,
+      avatarUrl: fixture.profile.avatarUrl,
     },
     links: {
       email,
