@@ -158,7 +158,36 @@ export function usePortfolioExport({ onInvalid }: UsePortfolioExportOptions) {
         signal: abortController.signal,
       });
 
-      if (!response.ok || !response.body) {
+      if (!response.ok) {
+        let parsed: unknown = null;
+        try {
+          parsed = await response.clone().json();
+        } catch {
+          // fall through to generic error
+        }
+        const issues =
+          parsed &&
+          typeof parsed === "object" &&
+          "issues" in parsed &&
+          Array.isArray((parsed as { issues: unknown }).issues)
+            ? (parsed as { issues: PortfolioValidationIssue[] }).issues
+            : null;
+        if (issues && issues.length > 0 && issues[0]) {
+          onInvalid(issues[0]);
+          dispatch({
+            type: "failed",
+            stage: currentStageRef.current,
+            message:
+              issues.length === 1
+                ? issues[0].message
+                : `Found ${issues.length} validation issues. Correct the highlighted fields before downloading.`,
+          });
+          return;
+        }
+        throw new Error("Export request failed.");
+      }
+
+      if (!response.body) {
         throw new Error("Export request failed.");
       }
 

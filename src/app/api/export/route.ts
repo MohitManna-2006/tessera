@@ -20,8 +20,17 @@ function jsonLine(event: ExportStreamEvent) {
   return encoder.encode(`${JSON.stringify(event)}\n`);
 }
 
-function failureResponse(message: string, status: number) {
-  return Response.json({ message }, { status });
+function failureResponse(
+  message: string,
+  status: number,
+  issues?: readonly {
+    path: string;
+    message: string;
+    section?: string;
+    fieldId?: string;
+  }[],
+) {
+  return Response.json(issues ? { message, issues } : { message }, { status });
 }
 
 export async function POST(request: Request) {
@@ -47,6 +56,7 @@ export async function POST(request: Request) {
     return failureResponse(
       "Correct the portfolio validation errors before exporting.",
       400,
+      validation.issues,
     );
   }
 

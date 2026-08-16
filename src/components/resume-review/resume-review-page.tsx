@@ -545,6 +545,14 @@ export function ResumeReviewPage() {
                 ? "Draft confirmed"
                 : "Confirm portfolio draft"}
             </button>
+            {review.confirmedAt ? (
+              <Link
+                className="resume-primary-button review-footer-link"
+                href="/builder?source=resume"
+              >
+                Continue to builder
+              </Link>
+            ) : null}
           </div>
         </div>
       </footer>

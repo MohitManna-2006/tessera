@@ -134,6 +134,11 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/builder");
+  try {
+    window.sessionStorage.clear();
+  } catch {
+    // ignore storage cleanup errors
+  }
 });
 
 describe("Tessera portfolio builder", () => {
@@ -335,7 +340,6 @@ describe("Tessera portfolio builder", () => {
 
   it("restores the exact fixture without rewriting disclosure preferences", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<BuilderPage />);
 
     await user.click(getSectionButton("Collapse", "Profile"));
@@ -345,6 +349,13 @@ describe("Tessera portfolio builder", () => {
     await user.type(emailInput, "invalid");
 
     await user.click(screen.getByRole("button", { name: "Reset draft" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Reset draft to original?",
+    });
+    expect(dialog).toBeVisible();
+    await user.click(
+      within(dialog).getByRole("button", { name: "Reset draft" }),
+    );
 
     expect(screen.getByLabelText("Full name")).toHaveValue("Avery Morgan");
     expect(emailInput).toHaveValue("avery.morgan@example.com");
@@ -357,6 +368,25 @@ describe("Tessera portfolio builder", () => {
       "true",
     );
     expect(screen.queryByText("Enter a complete email address.")).toBeNull();
+  });
+
+  it("cancels reset when keep edits is chosen", async () => {
+    const user = userEvent.setup();
+    render(<BuilderPage />);
+
+    await user.click(getSectionButton("Expand", "Links"));
+    const emailInput = screen.getByLabelText("Email");
+    await user.clear(emailInput);
+    await user.type(emailInput, "keep@me.com");
+
+    await user.click(screen.getByRole("button", { name: "Reset draft" }));
+    expect(
+      screen.getByRole("dialog", { name: "Reset draft to original?" }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Keep my edits" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(emailInput).toHaveValue("keep@me.com");
   });
 
   it("preserves disclosure state across keyboard-operated compact tabs", async () => {
@@ -409,8 +439,8 @@ describe("Tessera portfolio builder", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(
-      screen.getByText(
-        "Correct the highlighted email or URL fields before downloading.",
+      within(screen.getByRole("alert")).getByText(
+        "Enter a complete email address.",
       ),
     ).toBeVisible();
     expect(emailInput).toHaveFocus();
