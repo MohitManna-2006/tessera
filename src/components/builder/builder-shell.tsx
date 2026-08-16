@@ -17,6 +17,8 @@ import {
   readBuilderDraft,
   writeBuilderDraft,
 } from "@/lib/builder/persistence";
+import { readGitHubEnvelope } from "@/lib/github/persistence";
+import { mergeGitHubIntoPortfolio } from "@/lib/github/merge";
 import { readResumeTransferState } from "@/lib/resume-review/transfer-store";
 import { mapResumeDraftToPortfolio } from "@/lib/resume-review/mapper";
 
@@ -51,14 +53,37 @@ export function BuilderShell() {
     if (typeof window !== "undefined") {
       try {
         const params = new URLSearchParams(window.location.search);
-        if (params.get("source") === "resume") {
-          const envelope = readResumeTransferState(window.sessionStorage);
-          if (envelope) {
-            return mapResumeDraftToPortfolio(envelope.draft);
+        const source = params.get("source");
+
+        // Try hydration from resume and/or github when source param present
+        if (source) {
+          let base: Portfolio | null = null;
+          const resumeEnvelope = readResumeTransferState(window.sessionStorage);
+          if (resumeEnvelope) {
+            base = mapResumeDraftToPortfolio(resumeEnvelope.draft);
           }
+          const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
+          if (githubEnvelope && githubEnvelope.selectedRepoIds.length > 0) {
+            const effectiveBase =
+              base ??
+              readBuilderDraft(window.sessionStorage) ??
+              createPortfolioDraft();
+            return mergeGitHubIntoPortfolio(effectiveBase, githubEnvelope);
+          }
+          if (base) return base;
         }
+
         const stored = readBuilderDraft(window.sessionStorage);
-        if (stored) return stored;
+        if (stored) {
+          // Also merge github on plain builder loads if github selection exists
+          const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
+          if (githubEnvelope && githubEnvelope.selectedRepoIds.length > 0) {
+            // Only merge if builder draft hasn't already been merged? We merge idempotently.
+            // Check if stored projects already match github selection by id mapping not trivial — so skip if source not present to avoid overwriting manual edits.
+            // For now, don't auto-merge without source param to preserve manual edits.
+          }
+          return stored;
+        }
       } catch {
         // fallback to fixture
       }
@@ -74,28 +99,56 @@ export function BuilderShell() {
   const [hydrateNotice, setHydrateNotice] = useState<string | null>(null);
   const isCompact = useCompactLayout();
 
-  // Handle resume draft hydration via ?source=resume
+  // Handle hydration via ?source=resume|github
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("source") !== "resume") return;
+    const source = params.get("source");
+    if (!source) return;
     try {
-      const envelope = readResumeTransferState(window.sessionStorage);
-      if (envelope) {
-        setHydrateNotice(
-          `Builder hydrated from resume "${envelope.draft.source.filename}" — review and edit before exporting.`,
-        );
-        // Clean the query so refresh keeps builder edits, not re-hydrates
+      const wantsResume = source.includes("resume");
+      const wantsGithub = source.includes("github");
+      const resumeEnvelope = wantsResume
+        ? readResumeTransferState(window.sessionStorage)
+        : null;
+      const githubEnvelope = readGitHubEnvelope(window.sessionStorage);
+      const hasGithub = Boolean(
+        githubEnvelope && githubEnvelope.selectedRepoIds.length > 0,
+      );
+
+      if (wantsResume && resumeEnvelope) {
+        if (hasGithub) {
+          const count = githubEnvelope!.selectedRepoIds.length;
+          setHydrateNotice(
+            `Added experience from your resume and ${count} GitHub project${count === 1 ? "" : "s"} to your portfolio — review below before downloading.`,
+          );
+        } else {
+          setHydrateNotice(
+            `Added experience from your resume to your portfolio — review below before downloading.`,
+          );
+        }
         const nextUrl = new URL(window.location.href);
         nextUrl.searchParams.delete("source");
         window.history.replaceState(null, "", nextUrl.toString());
-      } else {
+      } else if (wantsGithub && hasGithub) {
+        const count = githubEnvelope!.selectedRepoIds.length;
         setHydrateNotice(
-          "No resume draft found in this tab. Upload a resume to hydrate the builder.",
+          `Added ${count} GitHub project${count === 1 ? "" : "s"} to your portfolio — review below before downloading.`,
+        );
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete("source");
+        window.history.replaceState(null, "", nextUrl.toString());
+      } else if (wantsResume && !resumeEnvelope) {
+        setHydrateNotice(
+          "No resume draft found in this tab. Upload a resume to start your portfolio.",
+        );
+      } else if (wantsGithub && !hasGithub) {
+        setHydrateNotice(
+          "No GitHub selection found. Import projects to add them to your portfolio.",
         );
       }
     } catch {
-      setHydrateNotice("Could not read the resume draft for this tab.");
+      setHydrateNotice("Could not read the draft for this tab.");
     }
   }, []);
 
@@ -250,7 +303,14 @@ export function BuilderShell() {
           role="status"
           aria-live="polite"
         >
-          {hydrateNotice}
+          <span>{hydrateNotice}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setHydrateNotice(null)}
+          >
+            ×
+          </button>
         </div>
       ) : null}
       <main className="builder-workspace">

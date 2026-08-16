@@ -27,9 +27,14 @@ export function OnboardingHeader() {
         <Link className="onboarding-wordmark wordmark" href="/">
           Tessera
         </Link>
-        <Link className="open-builder-link" href="/builder">
-          Open builder
-        </Link>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <Link className="open-builder-link" href="/github">
+            GitHub import
+          </Link>
+          <Link className="open-builder-link" href="/builder">
+            Open builder
+          </Link>
+        </div>
       </div>
     </header>
   );
@@ -77,6 +82,9 @@ export function OnboardingPage() {
               <div className="onboarding-actions">
                 <Link className="onboarding-primary-action" href="/resume">
                   Build from my resume
+                </Link>
+                <Link className="onboarding-secondary-action" href="/github">
+                  Import from GitHub
                 </Link>
                 <Link
                   className="onboarding-secondary-action"

@@ -548,9 +548,9 @@ export function ResumeReviewPage() {
             {review.confirmedAt ? (
               <Link
                 className="resume-primary-button review-footer-link"
-                href="/builder?source=resume"
+                href="/github"
               >
-                Continue to builder
+                Continue to GitHub import
               </Link>
             ) : null}
           </div>
